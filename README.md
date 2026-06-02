@@ -34,8 +34,8 @@ The app uses an OpenAI **stored prompt** to power the storytelling voice agent. 
 
 1. Go to [platform.openai.com/prompts](https://platform.openai.com/prompts)
 2. Click **Create prompt**
-3. Paste the storyteller prompt (your instructor will provide this)
-4. Add three **variables** to the prompt template: `{{story_title}}`, `{{story_context}}`, and `{{story_beats}}`
+3. Open [`prompts/storyteller.md`](prompts/storyteller.md) in this repo and copy the **Prompt Template** section
+4. Paste it into the OpenAI prompt editor — make sure the three variables (`{{story_title}}`, `{{story_context}}`, `{{story_beats}}`) are recognised
 5. Save the prompt and copy the **Prompt ID** (starts with `pmpt_`)
 
 ### Step 3: Create a Railway Project
@@ -125,6 +125,7 @@ client/              # Expo/React Native frontend
 server/              # Express backend (OpenAI session proxy)
   routes.ts          # API endpoints (/api/token, /health)
   languageConfig.ts  # Language-specific voice settings
+prompts/             # Stored prompt templates for OpenAI
 attached_assets/     # Story card images
 railway.json         # Railway deployment config
 .env.example         # Environment variable template
