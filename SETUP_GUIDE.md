@@ -127,7 +127,35 @@ The first command downloads the code. The second command moves you into the proj
 
 ---
 
-## Step 3: Set Up OpenAI
+## Step 3: Preview the App Locally
+
+Before setting up any accounts or API keys, let's see the app actually running on your machine. This gives you a feel for what you're deploying — and it's a great way to check that the code downloaded correctly.
+
+### Ask Claude to run it
+
+Open Claude Code inside the `storylingo-demo` folder and type:
+
+> "Can you run a preview of this app"
+
+Claude will install the dependencies and start the development server for you. After a minute or so you'll see the app open in your browser (or Claude will give you a link like `http://localhost:8081`).
+
+### What you should see
+
+You'll land on the **StoryLingo home screen** — an owl mascot, the app name, and a **Start** button. Tap Start and you'll reach the **Story Selection screen**, where you can browse the available stories and language options.
+
+> **Note:** The voice AI features won't work yet — those need your OpenAI keys from Step 4. But the whole UI will be there and navigable.
+
+### How to stop the server
+
+When you're done previewing, go back to Claude Code and type:
+
+> "Stop the dev server"
+
+Or just close the terminal window.
+
+---
+
+## Step 4: Set Up OpenAI
 
 OpenAI provides the voice AI that powers the storytelling. You need two things from them: an **API key** (your password to use their services) and a **stored prompt** (the instructions that tell the AI how to be a storyteller).
 
@@ -178,7 +206,7 @@ Save this Prompt ID alongside your API key. You'll need both in the next steps.
 
 ---
 
-## Step 4: Set Up Railway
+## Step 5: Set Up Railway
 
 Railway is a cloud platform that runs your app on the internet. Think of it as renting a computer that's always on, always connected, and accessible from any URL.
 
@@ -201,7 +229,7 @@ Railway is a cloud platform that runs your app on the internet. Think of it as r
 
 ---
 
-## Step 5: Configure Environment Variables
+## Step 6: Configure Environment Variables
 
 Environment variables are **secret settings** your app needs to run — things like API keys and domain names. They're kept separate from the code so you can share the code without sharing your secrets.
 
@@ -254,7 +282,7 @@ EXPO_PUBLIC_DOMAIN=localhost:5000
 
 ---
 
-## Step 6: Deploy to Railway
+## Step 7: Deploy to Railway
 
 Once your environment variables are set, Railway will automatically build and deploy your app.
 
@@ -284,7 +312,7 @@ The build takes **3-5 minutes** the first time. You'll see logs streaming in the
 
 ---
 
-## Step 7: Verify It Works
+## Step 8: Verify It Works
 
 Time for the fun part. Let's make sure everything is working.
 
@@ -303,10 +331,10 @@ Time for the fun part. Let's make sure everything is working.
 |-------------|----------------------|--------------|
 | App doesn't load at all | Build failed | Check the Railway deployment logs for errors. Most likely `EXPO_PUBLIC_DOMAIN` wasn't set before the build |
 | App loads but voice doesn't work | Missing prompt ID or API key | Check that both `OPENAI_API_KEY` and `OPENAI_PROMPT_ID` are set in Railway Variables |
-| "OPENAI_PROMPT_ID not set" error | Prompt ID missing | Go back to Step 3 and create the stored prompt |
+| "OPENAI_PROMPT_ID not set" error | Prompt ID missing | Go back to Step 4 and create the stored prompt |
 | 401 error from OpenAI | Invalid API key | Double-check your API key. It may have expired or been revoked |
 | Microphone not detected | Browser permissions | Click the lock icon in your browser's address bar and allow microphone access |
-| App loads but shows wrong URL errors | EXPO_PUBLIC_DOMAIN mismatch | Make sure the domain matches your Railway URL exactly (no `https://`, no trailing slash). Redeploy after fixing |
+| App loads but shows wrong URL errors | EXPO_PUBLIC_DOMAIN mismatch | Make sure the domain matches your Railway URL exactly (no `https://`, no trailing slash). Redeploy after fixing (see Step 6) |
 
 If you're stuck, **ask Claude Code for help.** Open the project and describe what you're seeing — it can read the error logs and help you debug.
 
@@ -318,6 +346,7 @@ Look at what you just did:
 
 - **Set up Claude Code** as your AI coding assistant
 - **Created a GitHub account** and cloned a real codebase
+- **Previewed the app locally** before touching any accounts or credentials
 - **Set up an OpenAI account** with API access and a stored voice prompt
 - **Created a Railway project** and connected it to your GitHub repo
 - **Configured environment variables** — the secret settings that make the app work
