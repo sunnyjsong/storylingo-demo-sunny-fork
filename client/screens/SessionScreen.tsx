@@ -376,7 +376,7 @@ export default function SessionScreen() {
           const data = JSON.parse(msgEvent.data);
           console.log("OpenAI event:", data.type);
 
-          if (data.type === "response.audio_transcript.delta") {
+          if (data.type === "response.audio_transcript.delta" || data.type === "response.output_audio_transcript.delta") {
             const delta = data.delta || '';
             currentAITextRef.current += delta;
             // Bilingual captions: stream target text and batch for translation
@@ -406,7 +406,7 @@ export default function SessionScreen() {
               }));
               dataChannelRef.current.send(JSON.stringify({ type: "input_audio_buffer.clear" }));
             }
-          } else if (data.type === "response.audio.delta") {
+          } else if (data.type === "response.audio.delta" || data.type === "response.output_audio.delta") {
             setStatus("speaking");
             if (localStreamRef.current) {
               localStreamRef.current.getAudioTracks().forEach(t => { t.enabled = false; });
