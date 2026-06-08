@@ -150,7 +150,9 @@ export default function SessionScreen() {
   const [captionsVisible, setCaptionsVisible] = useState<boolean>(false);
   const captionFullTextRef = useRef<string>('');
   const captionCharsSinceTranslateRef = useRef<number>(0);
-  const translateSeqRef = useRef<number>(0);
+  const lastEnglishLenRef = useRef<number>(0);
+  const captionTurnIdRef = useRef<number>(0);
+  const captionTurnDoneRef = useRef<boolean>(false);
   const translationAbortRef = useRef<AbortController | null>(null);
   const captionFadeTimerRef = useRef<NodeJS.Timeout | null>(null);
   // Refs to avoid stale closures in the data channel handler
@@ -386,13 +388,18 @@ export default function SessionScreen() {
             // Bilingual captions: stream the full target text + translate it
             if (languageRef.current !== "en" && captionsEnabledRef.current) {
               if (wasEmpty) {
-                // New AI turn: clear any pending fade-out and stale translation
+                // New AI turn: reset translation accumulation + cancel stragglers
                 if (captionFadeTimerRef.current) {
                   clearTimeout(captionFadeTimerRef.current);
                   captionFadeTimerRef.current = null;
                 }
-                setCaptionEnglishText('');
+                translationAbortRef.current?.abort();
+                translationAbortRef.current = new AbortController();
+                captionTurnIdRef.current++;
+                captionTurnDoneRef.current = false;
                 captionCharsSinceTranslateRef.current = 0;
+                lastEnglishLenRef.current = 0;
+                setCaptionEnglishText('');
               }
               setCaptionsVisible(true);
               setCaptionTargetText(currentAITextRef.current);
@@ -400,7 +407,7 @@ export default function SessionScreen() {
               captionCharsSinceTranslateRef.current += delta.length;
               if (shouldTranslateNow(captionFullTextRef.current, captionCharsSinceTranslateRef.current)) {
                 captionCharsSinceTranslateRef.current = 0;
-                requestTranslation(captionFullTextRef.current);
+                requestTranslation(captionFullTextRef.current, captionTurnIdRef.current);
               }
             }
             setStatus("speaking");
@@ -439,18 +446,15 @@ export default function SessionScreen() {
               });
               currentAITextRef.current = '';
             }
-            // Translate the full final text. Keep captions visible until the
-            // audio actually finishes (output_audio_buffer.stopped); the timer
-            // here is only a safety fallback in case that event never arrives.
+            // Text generation is done (but audio is still playing). Fire a final
+            // full-text translation and mark the turn done so the audio-stopped
+            // event is allowed to hide captions. The timer is only a safety
+            // fallback in case output_audio_buffer.stopped never arrives.
             if (languageRef.current !== "en" && captionsEnabledRef.current) {
-              requestTranslation(captionFullTextRef.current);
+              captionTurnDoneRef.current = true;
+              requestTranslation(captionFullTextRef.current, captionTurnIdRef.current);
               if (captionFadeTimerRef.current) clearTimeout(captionFadeTimerRef.current);
-              captionFadeTimerRef.current = setTimeout(() => {
-                setCaptionsVisible(false);
-                setCaptionTargetText("");
-                setCaptionEnglishText("");
-                captionFullTextRef.current = "";
-              }, 20000);
+              captionFadeTimerRef.current = setTimeout(hideCaptions, 20000);
             }
             setStatus("listening");
             setIsMuted(true);
@@ -475,17 +479,16 @@ export default function SessionScreen() {
               }
             }
           } else if (data.type === "output_audio_buffer.stopped") {
-            // Audio playback finished — let captions linger briefly, then hide.
-            // (response.done fires while audio is still playing, so we wait for
-            // this event instead to avoid cutting captions off mid-sentence.)
-            if (languageRef.current !== "en" && captionsEnabledRef.current) {
+            // Audio playback finished. Only hide once the turn's TEXT is also
+            // done (response.done set captionTurnDone), so a momentary buffer
+            // drain mid-phrase can't cut the captions off early.
+            if (
+              languageRef.current !== "en" &&
+              captionsEnabledRef.current &&
+              captionTurnDoneRef.current
+            ) {
               if (captionFadeTimerRef.current) clearTimeout(captionFadeTimerRef.current);
-              captionFadeTimerRef.current = setTimeout(() => {
-                setCaptionsVisible(false);
-                setCaptionTargetText("");
-                setCaptionEnglishText("");
-                captionFullTextRef.current = "";
-              }, 1500);
+              captionFadeTimerRef.current = setTimeout(hideCaptions, 1500);
             }
           } else if (data.type === "session.created") {
             console.log("Session created successfully");
@@ -724,19 +727,20 @@ export default function SessionScreen() {
     }
   };
 
-  // Translate the FULL accumulated AI text so the English caption always
-  // mirrors the full target-language caption (not just the latest sentence).
-  // A sequence guard ensures only the most recent (most complete) translation
-  // is applied, even if an earlier request resolves out of order.
-  const requestTranslation = (fullText: string) => {
+  // Translate the FULL accumulated AI text so far. As the AI speaks we fire one
+  // of these each time a sentence completes; "longer translation wins" so the
+  // English caption grows sentence-by-sentence in step with the target text and
+  // never flickers backwards. captionTurnId scopes results to the current turn.
+  const requestTranslation = (fullText: string, turnId: number) => {
     const text = fullText.trim();
     if (!text || languageRef.current === "en") return;
-    const seq = ++translateSeqRef.current;
-    translationAbortRef.current?.abort();
-    const controller = new AbortController();
-    translationAbortRef.current = controller;
-    translateText(text, languageRef.current, controller.signal).then((translation) => {
-      if (seq === translateSeqRef.current && translation) {
+    translateText(text, languageRef.current, translationAbortRef.current?.signal).then((translation) => {
+      if (
+        turnId === captionTurnIdRef.current &&
+        translation &&
+        translation.length >= lastEnglishLenRef.current
+      ) {
+        lastEnglishLenRef.current = translation.length;
         setCaptionEnglishText(translation);
       }
     });
@@ -745,6 +749,13 @@ export default function SessionScreen() {
   const shouldTranslateNow = (fullText: string, charsSince: number): boolean => {
     const endsWithSentence = /[。！？.!?]\s*$/.test(fullText);
     return (endsWithSentence && charsSince >= 8) || charsSince >= 50;
+  };
+
+  const hideCaptions = () => {
+    setCaptionsVisible(false);
+    setCaptionTargetText("");
+    setCaptionEnglishText("");
+    captionFullTextRef.current = "";
   };
 
   const toggleCaptions = () => {
@@ -779,7 +790,8 @@ export default function SessionScreen() {
     dataChannelRef.current = null;
     stopPulseAnimation();
     // Cleanup captions
-    translateSeqRef.current++; // invalidate any pending translation result
+    captionTurnIdRef.current++; // invalidate any pending translation result
+    captionTurnDoneRef.current = false;
     translationAbortRef.current?.abort();
     if (captionFadeTimerRef.current) clearTimeout(captionFadeTimerRef.current);
     setCaptionTargetText("");
@@ -787,6 +799,7 @@ export default function SessionScreen() {
     setCaptionsVisible(false);
     captionFullTextRef.current = "";
     captionCharsSinceTranslateRef.current = 0;
+    lastEnglishLenRef.current = 0;
   };
 
   const handleBack = async () => {
