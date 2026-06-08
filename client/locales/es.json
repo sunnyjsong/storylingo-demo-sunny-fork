@@ -109,7 +109,9 @@
     "pause": "Pausar",
     "resume": "Continuar",
     "holdToSpeak": "Mantén presionado para hablar",
-    "timeLeft": "{time} restantes hoy"
+    "timeLeft": "{time} restantes hoy",
+    "captionsOn": "Subtítulos activados",
+    "captionsOff": "Subtítulos desactivados"
   },
   "voiceAgent": {
     "languageInstruction": "Por favor, habla en español durante toda la sesión de la historia.",

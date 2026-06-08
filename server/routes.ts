@@ -122,6 +122,62 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // POST /api/translate - Translate text to English for bilingual captions
+  app.post("/api/translate", async (req, res) => {
+    try {
+      const { text, sourceLanguage } = req.body;
+
+      if (!text || !sourceLanguage) {
+        return res.status(400).json({ error: "Missing text or sourceLanguage" });
+      }
+
+      if (sourceLanguage === "en") {
+        return res.status(400).json({ error: "Translation not needed for English" });
+      }
+
+      const langConfig = getLanguageConfig(sourceLanguage);
+
+      const response = await fetch(
+        "https://api.openai.com/v1/chat/completions",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: "gpt-4o-mini",
+            messages: [
+              {
+                role: "system",
+                content: `Translate the following ${langConfig.languageName} text to English. Return only the translation, nothing else. Keep it natural and child-friendly.`,
+              },
+              {
+                role: "user",
+                content: text,
+              },
+            ],
+            max_tokens: 256,
+            temperature: 0.3,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        console.error("Translation API error:", await response.text());
+        return res.json({ translation: "" });
+      }
+
+      const data = await response.json();
+      const translation = data.choices?.[0]?.message?.content?.trim() || "";
+
+      res.json({ translation });
+    } catch (error) {
+      console.error("Translation error:", error);
+      res.json({ translation: "" });
+    }
+  });
+
   const httpServer = createServer(app);
 
   return httpServer;

@@ -109,7 +109,9 @@
     "pause": "Pause",
     "resume": "Resume",
     "holdToSpeak": "Hold to speak",
-    "timeLeft": "{time} left today"
+    "timeLeft": "{time} left today",
+    "captionsOn": "Captions on",
+    "captionsOff": "Captions off"
   },
   "voiceAgent": {
     "languageInstruction": "Please speak in English for the entire story session.",

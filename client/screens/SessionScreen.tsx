@@ -29,7 +29,9 @@ import Animated, {
 } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
 
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { ThemedText } from "@/components/ThemedText";
+import LiveCaptions from "@/components/LiveCaptions";
 import { Spacing, BorderRadius, StoryBuddyColors, Typography } from "@/constants/theme";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 import { getApiUrl } from "@/lib/query-client";
@@ -141,9 +143,25 @@ export default function SessionScreen() {
   const currentAITextRef = useRef<string>('');
   const userTurnCountRef = useRef(0);
 
+  // Bilingual caption state
+  const [captionTargetText, setCaptionTargetText] = useState<string>('');
+  const [captionEnglishText, setCaptionEnglishText] = useState<string>('');
+  const [captionsEnabled, setCaptionsEnabled] = useState<boolean>(true);
+  const [captionsVisible, setCaptionsVisible] = useState<boolean>(false);
+  const captionBatchRef = useRef<string>('');
+  const translationAbortRef = useRef<AbortController | null>(null);
+  const captionFadeTimerRef = useRef<NodeJS.Timeout | null>(null);
+
   const talkButtonScale = useSharedValue(1);
   const pulseScale = useSharedValue(1);
   const glowOpacity = useSharedValue(0);
+
+  // Load caption preference from storage
+  useEffect(() => {
+    AsyncStorage.getItem("@storylingo_captions_enabled").then((value) => {
+      if (value !== null) setCaptionsEnabled(value === "true");
+    });
+  }, []);
 
   // Cleanup on unmount only (connection is started by user tap)
   useEffect(() => {
@@ -154,6 +172,10 @@ export default function SessionScreen() {
       if (listenIntervalRef.current) {
         clearInterval(listenIntervalRef.current);
       }
+      if (captionFadeTimerRef.current) {
+        clearTimeout(captionFadeTimerRef.current);
+      }
+      translationAbortRef.current?.abort();
     };
   }, []);
 
@@ -350,7 +372,22 @@ export default function SessionScreen() {
           console.log("OpenAI event:", data.type);
 
           if (data.type === "response.audio_transcript.delta") {
-            currentAITextRef.current += data.delta || '';
+            const delta = data.delta || '';
+            currentAITextRef.current += delta;
+            // Bilingual captions: stream target text and batch for translation
+            if (language !== "en" && captionsEnabled) {
+              // Clear fade timer if AI starts speaking again
+              if (captionFadeTimerRef.current) {
+                clearTimeout(captionFadeTimerRef.current);
+                captionFadeTimerRef.current = null;
+              }
+              setCaptionsVisible(true);
+              setCaptionTargetText(currentAITextRef.current);
+              captionBatchRef.current += delta;
+              if (shouldFlushBatch(captionBatchRef.current)) {
+                flushCaptionBatch();
+              }
+            }
             setStatus("speaking");
             if (localStreamRef.current) {
               localStreamRef.current.getAudioTracks().forEach(t => { t.enabled = false; });
@@ -386,6 +423,15 @@ export default function SessionScreen() {
                 timestamp: Date.now(),
               });
               currentAITextRef.current = '';
+            }
+            // Flush remaining caption batch and start fade-out timer
+            if (language !== "en" && captionsEnabled) {
+              flushCaptionBatch();
+              captionFadeTimerRef.current = setTimeout(() => {
+                setCaptionsVisible(false);
+                setCaptionTargetText("");
+                setCaptionEnglishText("");
+              }, 4000);
             }
             setStatus("listening");
             setIsMuted(true);
@@ -626,6 +672,56 @@ export default function SessionScreen() {
     }
   };
 
+  // Bilingual caption helpers
+  const translateText = async (text: string, sourceLanguage: string, signal?: AbortSignal): Promise<string> => {
+    try {
+      const baseUrl = getApiUrl();
+      const url = new URL("/api/translate", baseUrl);
+      const res = await fetch(url.toString(), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text, sourceLanguage }),
+        signal,
+      });
+      if (!res.ok) return "";
+      const data = await res.json();
+      return data.translation || "";
+    } catch {
+      return "";
+    }
+  };
+
+  const flushCaptionBatch = () => {
+    const text = captionBatchRef.current.trim();
+    if (!text || language === "en") return;
+    captionBatchRef.current = "";
+
+    // Abort previous in-flight translation
+    translationAbortRef.current?.abort();
+    const controller = new AbortController();
+    translationAbortRef.current = controller;
+
+    translateText(text, language, controller.signal).then((translation) => {
+      if (translation) setCaptionEnglishText(translation);
+    });
+  };
+
+  const shouldFlushBatch = (batch: string): boolean => {
+    // Chinese sentence-ending punctuation
+    const cnEndings = /[。！？]/;
+    // General sentence-ending punctuation
+    const endings = /[.!?]/;
+    const hasEnding = cnEndings.test(batch) || endings.test(batch);
+    return (hasEnding && batch.length >= 8) || batch.length >= 60;
+  };
+
+  const toggleCaptions = () => {
+    const newValue = !captionsEnabled;
+    setCaptionsEnabled(newValue);
+    AsyncStorage.setItem("@storylingo_captions_enabled", String(newValue));
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  };
+
   const stopSession = () => {
     // Close WebRTC connection
     if (pcRef.current) {
@@ -650,6 +746,13 @@ export default function SessionScreen() {
     setIsPaused(false);
     dataChannelRef.current = null;
     stopPulseAnimation();
+    // Cleanup captions
+    translationAbortRef.current?.abort();
+    if (captionFadeTimerRef.current) clearTimeout(captionFadeTimerRef.current);
+    setCaptionTargetText("");
+    setCaptionEnglishText("");
+    setCaptionsVisible(false);
+    captionBatchRef.current = "";
   };
 
   const handleBack = async () => {
@@ -823,21 +926,44 @@ export default function SessionScreen() {
                     <ThemedText style={styles.sessionStoryTitle}>{story.title}</ThemedText>
                   </View>
 
-                  {isFreeTrial ? (
-                    <View style={[styles.countdownBadge, isLowTime ? styles.countdownBadgeWarning : null]}>
-                      <Feather
-                        name="clock"
-                        size={14}
-                        color={isLowTime ? StoryBuddyColors.error : "rgba(255,255,255,0.7)"}
-                      />
-                      <Text style={[styles.countdownText, isLowTime ? styles.countdownTextWarning : null]}>
-                        {t.session.timeLeft.replace("{time}", formatTimeRemaining(displayRemainingSeconds))}
-                      </Text>
-                    </View>
-                  ) : null}
+                  <View style={styles.topRowRight}>
+                    {language !== "en" && (
+                      <Pressable
+                        onPress={toggleCaptions}
+                        style={styles.captionToggle}
+                        testID="button-caption-toggle"
+                      >
+                        <Feather
+                          name="type"
+                          size={18}
+                          color={captionsEnabled ? "#FFFFFF" : "rgba(255,255,255,0.3)"}
+                        />
+                      </Pressable>
+                    )}
+
+                    {isFreeTrial ? (
+                      <View style={[styles.countdownBadge, isLowTime ? styles.countdownBadgeWarning : null]}>
+                        <Feather
+                          name="clock"
+                          size={14}
+                          color={isLowTime ? StoryBuddyColors.error : "rgba(255,255,255,0.7)"}
+                        />
+                        <Text style={[styles.countdownText, isLowTime ? styles.countdownTextWarning : null]}>
+                          {t.session.timeLeft.replace("{time}", formatTimeRemaining(displayRemainingSeconds))}
+                        </Text>
+                      </View>
+                    ) : null}
+                  </View>
                 </View>
 
                 <ThemedText style={styles.statusText}>{getStatusText()}</ThemedText>
+
+                {language !== "en" && captionsEnabled && captionsVisible && (
+                  <LiveCaptions
+                    targetText={captionTargetText}
+                    englishText={captionEnglishText}
+                  />
+                )}
 
                 <View style={styles.talkButtonContainer}>
                   <Pressable
@@ -1122,6 +1248,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     width: "100%",
+  },
+  topRowRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+  },
+  captionToggle: {
+    padding: Spacing.sm,
+    borderRadius: BorderRadius.full,
+    backgroundColor: "rgba(255,255,255,0.15)",
   },
   sessionCharacterBadge: {
     flexDirection: "row",

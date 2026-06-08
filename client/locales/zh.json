@@ -109,7 +109,9 @@
     "pause": "暂停",
     "resume": "继续",
     "holdToSpeak": "按住说话",
-    "timeLeft": "今日剩余 {time}"
+    "timeLeft": "今日剩余 {time}",
+    "captionsOn": "字幕已开",
+    "captionsOff": "字幕已关"
   },
   "voiceAgent": {
     "languageInstruction": "请在整个故事会话中使用中文（普通话）。",
