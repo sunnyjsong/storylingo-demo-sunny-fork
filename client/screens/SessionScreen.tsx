@@ -151,6 +151,11 @@ export default function SessionScreen() {
   const captionBatchRef = useRef<string>('');
   const translationAbortRef = useRef<AbortController | null>(null);
   const captionFadeTimerRef = useRef<NodeJS.Timeout | null>(null);
+  // Refs to avoid stale closures in the data channel handler
+  const captionsEnabledRef = useRef<boolean>(true);
+  const languageRef = useRef<string>(language);
+  captionsEnabledRef.current = captionsEnabled;
+  languageRef.current = language;
 
   const talkButtonScale = useSharedValue(1);
   const pulseScale = useSharedValue(1);
@@ -375,7 +380,7 @@ export default function SessionScreen() {
             const delta = data.delta || '';
             currentAITextRef.current += delta;
             // Bilingual captions: stream target text and batch for translation
-            if (language !== "en" && captionsEnabled) {
+            if (languageRef.current !== "en" && captionsEnabledRef.current) {
               // Clear fade timer if AI starts speaking again
               if (captionFadeTimerRef.current) {
                 clearTimeout(captionFadeTimerRef.current);
@@ -425,7 +430,7 @@ export default function SessionScreen() {
               currentAITextRef.current = '';
             }
             // Flush remaining caption batch and start fade-out timer
-            if (language !== "en" && captionsEnabled) {
+            if (languageRef.current !== "en" && captionsEnabledRef.current) {
               flushCaptionBatch();
               captionFadeTimerRef.current = setTimeout(() => {
                 setCaptionsVisible(false);
@@ -693,7 +698,7 @@ export default function SessionScreen() {
 
   const flushCaptionBatch = () => {
     const text = captionBatchRef.current.trim();
-    if (!text || language === "en") return;
+    if (!text || languageRef.current === "en") return;
     captionBatchRef.current = "";
 
     // Abort previous in-flight translation
@@ -701,7 +706,7 @@ export default function SessionScreen() {
     const controller = new AbortController();
     translationAbortRef.current = controller;
 
-    translateText(text, language, controller.signal).then((translation) => {
+    translateText(text, languageRef.current, controller.signal).then((translation) => {
       if (translation) setCaptionEnglishText(translation);
     });
   };
